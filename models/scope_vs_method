@@ -1,0 +1,80 @@
+learn from http://blog.plataformatec.com.br/2013/02/active-record-scopes-vs-class-methods/
+
+1.Defining a scope :
+
+  class Post < ActiveRecord::Base
+    scope :published, where(status: 'published') #  condition is evaluated when the class is first loaded
+    scope :draft, -> { where(status: 'draft') } # this condition is lazy evaluated when it is called
+  end
+
+2.Defining a class method :
+
+  def self.published
+    where(status: 'published')
+  end
+
+in this example, we can see define a scope is most simple than a class method, so here ar some interesting examples for you think about.
+
+
+
+3.Scopes are always chainale
+
+  lets use the following scenario: users will be able to filter posts by statuses, ordering by most recent updated ones. Simple enough, lets write scopes for that:
+
+    class Post < ActiveRecord::Base
+      scope :by_status, -> status { where(status: status) }
+      scope :recent, -> { order("posts.updated_at DESC") }
+    end
+
+    And we can call them freely like this:
+
+      Post.by_status('published').recent
+      # SELECT "posts".* FROM "posts" WHERE "posts"."status" = 'published'
+      #   ORDER BY posts.updated_at DESC
+
+    so far, so good, Now lets move them to class methods, just for the sake of comparing:
+
+      class Post < ActiveRecord::Base
+        def self.by_status(status)
+          where(status: status)
+        end
+
+        def self.recent
+          order("posts.updated_at DESC")
+        end
+      end
+
+    besides using a few extra lines, no big improvements, but now what happens if the :status parameter is nil or blank ?
+
+      Post.by_status(nil).recent
+      # SELECT "posts".* FROM "posts" WHERE "posts"."status" IS NULL
+      #   ORDER BY posts.updated_at DESC
+
+      Post.by_status('').recent
+      # SELECT "posts".* FROM "posts" WHERE "posts"."status" = ''
+      #   ORDER BY posts.updated_at DESC
+
+    whops, i don't think we wanted to allow these queries, did we? With scopes, we can easily fix that by adding a presence condition to our scope :
+
+      scope :by_status, -> status { where(status: status) if status.present? }
+
+    there we go:
+
+      Post.by_status(nil).recent
+      # SELECT "posts".* FROM "posts" ORDER BY posts.updated_at DESC
+
+      Post.by_status('').recent
+      # SELECT "posts".* FROM "posts" ORDER BY posts.updated_at DESC
+
+    Awesome. Now lets try to do the same with our beloved class method:
+
+      class Post < ActiveRecord::Base
+        def self.by_status(status)
+          where(status: status) if status.present?
+        end
+      end
+
+    running this:
+
+      Post.by_status('').recent
+      NoMethodError: undefined method `recent' for nil:NilClass
